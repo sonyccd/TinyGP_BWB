@@ -7,13 +7,17 @@ package test.herp.derp;
  *
  */
 
-import java.util.*;
-import java.io.*;
+import java.io.BufferedReader;
+import java.io.EOFException;
+import java.io.FileNotFoundException;
+import java.io.FileReader;
+import java.util.Random;
+import java.util.StringTokenizer;
 
 class tiny_gp {
-    double[] fitness;//stores the ratio that the program close to the "goal"
-    char[][] pop;//stack
-    static Random rd = new Random();//random number generator for use though out the program
+    public static final double
+            PMUT_PER_NODE = 0.05,//the probability of mutation in any given node from the mutate function
+            CROSSOVER_PROB = 0.9;//probability value of the crossover function
     static final int //this is the set of state value for the different operators
             ADD = 110,
             SUB = 111,
@@ -21,6 +25,14 @@ class tiny_gp {
             DIV = 113,
             FSET_START = ADD,
             FSET_END = DIV;
+    static final int
+            MAX_LEN = 10000,//this is the max length for ?
+            POPSIZE = 100000,//size of stack ?
+            DEPTH = 5,//the evolution depth of the tree to be searched
+            GENERATIONS = 50,//the max number of generations to allow before stopping the evolution
+            TSIZE = 2;
+    static char[] buffer = new char[MAX_LEN];
+    static Random rd = new Random();//random number generator for use though out the program
     static double[] x = new double[FSET_START];
     static double minrandom, maxrandom;//range for random variables
     static char[] program;//this is the character array for the input data
@@ -29,18 +41,38 @@ class tiny_gp {
     static double fbestpop = 0.0, favgpop = 0.0;
     static long seed;//seed for the random number generator
     static double avg_len;
-    static final int
-            MAX_LEN = 10000,//this is the max length for ?
-            POPSIZE = 100000,//size of stack ?
-            DEPTH = 5,//the evolution depth of the tree to be searched
-            GENERATIONS = 50,//the max number of generations to allow before stopping the evolution
-            TSIZE = 2;
-    public static final double
-            PMUT_PER_NODE = 0.05,//the probability of mutation in any given node from the mutate function
-            CROSSOVER_PROB = 0.9;//probability value of the crossover function
     static double[][] targets;//this double matrix of targets
+    double[] fitness;//stores the ratio that the program close to the "goal"
+    char[][] pop;//stack
 
-    double run() { /* Interpreter */
+    public tiny_gp(String fname, long s) {//this is the constructor method for the tiny_gp class
+        fitness = new double[POPSIZE];//sets up the fitness array to be size of nodes
+        seed = s;
+        if (seed >= 0)//if seed is given
+            rd.setSeed(seed);
+        setup_fitness(fname);
+        for (int i = 0; i < FSET_START; i++)
+            x[i] = (maxrandom - minrandom) * rd.nextDouble() + minrandom;
+        pop = create_random_pop(POPSIZE, DEPTH, fitness);
+    }
+
+    public static void main(String[] args) {//driver of the program
+        String fname = "problem.dat";
+        long s = -1;
+
+        if (args.length == 2) {
+            s = Integer.valueOf(args[0]).intValue();//set a seed
+            fname = args[1];
+        }
+        if (args.length == 1) {
+            fname = args[0];
+        }
+
+        tiny_gp gp = new tiny_gp(fname, s);
+        gp.evolve();
+    }
+
+    double run() { //interpreter of the program created by the system
         char primitive = program[PC++];
         if (primitive < FSET_START)
             return (x[primitive]);
@@ -77,6 +109,7 @@ class tiny_gp {
     }
 
     void setup_fitness(String fname) {//this is the init function for the fitness system, called only once
+        //this gets the data from the file
         try {
             int i, j;
             String line;
@@ -84,20 +117,22 @@ class tiny_gp {
             BufferedReader in =
                     new BufferedReader(
                             new
-                                    FileReader(fname));
+                                    FileReader(fname)
+                    );
             line = in.readLine();
             StringTokenizer tokens = new StringTokenizer(line);
-            varnumber = Integer.parseInt(tokens.nextToken().trim());
+            varnumber = Integer.parseInt(tokens.nextToken().trim());//this is the set up values
+            if(varnumber<1){System.err.println("ERROR: must be one or more variables");System.exit(0);}
             randomnumber = Integer.parseInt(tokens.nextToken().trim());
+            if (varnumber + randomnumber >= FSET_START){System.err.println("ERROR: too many variables and constants, should only be 5");}
             minrandom = Double.parseDouble(tokens.nextToken().trim());
             maxrandom = Double.parseDouble(tokens.nextToken().trim());
             fitnesscases = Integer.parseInt(tokens.nextToken().trim());
             targets = new double[fitnesscases][varnumber + 1];
-            if (varnumber + randomnumber >= FSET_START)
-                System.out.println("too many variables and constants");
 
             for (i = 0; i < fitnesscases; i++) {
                 line = in.readLine();
+                if(line == null){System.err.println("ERROR: To many cases"); System.exit(0);}
                 tokens = new StringTokenizer(line);
                 for (j = 0; j <= varnumber; j++) {
                     targets[i][j] = Double.parseDouble(tokens.nextToken().trim());
@@ -105,10 +140,10 @@ class tiny_gp {
             }
             in.close();
         } catch (FileNotFoundException e) {
-            System.out.println("ERROR: Please provide a data file");
+            System.err.println("ERROR: Please provide a data file");
             System.exit(0);
         } catch (Exception e) {
-            System.out.println("ERROR: Incorrect data format");
+            System.err.println("ERROR: Incorrect data format");
             System.out.print("Please place file as .data, also make sure it is in the format of");
             System.out.print("The first line should be as follows...");
             System.out.print("The second line should be as follows...");
@@ -126,7 +161,7 @@ class tiny_gp {
         for (i = 0; i < fitnesscases; i++) {
             System.arraycopy(targets[i], 0, x, 0, varnumber);
             program = Prog;
-            PC = 0;
+            PC = 0;//set program counter to 0
             result = run();
             fit += Math.abs(result - targets[i][varnumber]);
         }
@@ -164,7 +199,7 @@ class tiny_gp {
         return (0); // should never get here
     }
 
-    int print_indiv(char[] buffer, int buffercounter) {
+    int print_indiv(char[] buffer, int buffercounter) {//prints the trees
         int a1 = 0, a2;
         if (buffer[buffercounter] < FSET_START) {
             if (buffer[buffercounter] < varnumber)
@@ -173,7 +208,7 @@ class tiny_gp {
                 System.out.print(x[buffer[buffercounter]]);
             return (++buffercounter);
         }
-        switch (buffer[buffercounter]) {
+        switch (buffer[buffercounter]) {//breaks down the parts of the trees
             case ADD:
                 System.out.print("(");
                 a1 = print_indiv(buffer, ++buffercounter);
@@ -200,9 +235,6 @@ class tiny_gp {
         return (a2);
     }
 
-
-    static char[] buffer = new char[MAX_LEN];
-
     char[] create_random_indiv(int depth) {//this creates a random cell in the tree at some depth
         char[] ind;
         int len;
@@ -228,7 +260,6 @@ class tiny_gp {
         }
         return (pop);
     }
-
 
     void stats(double[] fitness, char[][] pop, int gen) {//creates information for the use to keep track of the progress
         int i, best = rd.nextInt(POPSIZE);
@@ -257,10 +288,10 @@ class tiny_gp {
     int tournament(double[] fitness, int tsize) {//this is a system based on the tournament model this is the function
         //that conducts the testing based on the fitness of the new programs
         int best = rd.nextInt(POPSIZE), i, competitor;
-        double fbest = -1.0e34;
+        double fbest = -1.0e34;//init value that is very small
 
-        for (i = 0; i < tsize; i++) {
-            competitor = rd.nextInt(POPSIZE);
+        for (i = 0; i < tsize; i++) {//linear search
+            competitor = rd.nextInt(POPSIZE);//select a random competitor
             if (fitness[competitor] > fbest) {
                 fbest = fitness[competitor];
                 best = competitor;
@@ -269,7 +300,7 @@ class tiny_gp {
         return (best);
     }
 
-    int negative_tournament(double[] fitness, int tsize) {//WTF not sure yet still working on this
+    int negative_tournament(double[] fitness, int tsize) {//same as tournament but trying to find worst
         int worst = rd.nextInt(POPSIZE), i, competitor;
         double fworst = 1e34;
 
@@ -349,61 +380,35 @@ class tiny_gp {
                 "\n----------------------------------\n");
     }
 
-    public tiny_gp(String fname, long s) {//this is the constructor method for the tiny_gp class
-        fitness = new double[POPSIZE];
-        seed = s;
-        if (seed >= 0)
-            rd.setSeed(seed);
-        setup_fitness(fname);
-        for (int i = 0; i < FSET_START; i++)
-            x[i] = (maxrandom - minrandom) * rd.nextDouble() + minrandom;
-        pop = create_random_pop(POPSIZE, DEPTH, fitness);
-    }
-
     void evolve() {//this is the main point of the program
+        //it will return when the program can not be solved or is solved
         int gen, indivs, offspring, parent1, parent2, parent;
         double newfit;
         char[] newind;
         print_parms();
         stats(fitness, pop, 0);
-        for (gen = 1; gen < GENERATIONS; gen++) {
-            if (fbestpop > -1e-5) {
+        for (gen = 1; gen < GENERATIONS; gen++) {//runs until all generations
+            if (fbestpop > -1e-5) {//5 decimal places
                 System.out.print("PROBLEM SOLVED\n");
-                System.exit(0);
+                System.exit(0);//exit, problem solved to some precision
             }
-            for (indivs = 0; indivs < POPSIZE; indivs++) {
-                if (rd.nextDouble() < CROSSOVER_PROB) {
-                    parent1 = tournament(fitness, TSIZE);
+            for (indivs = 0; indivs < POPSIZE; indivs++) {//evolution
+                if (rd.nextDouble() < CROSSOVER_PROB) {//probability of conducting a matting
+                    parent1 = tournament(fitness, TSIZE);//find a parent
                     parent2 = tournament(fitness, TSIZE);
-                    newind = crossover(pop[parent1], pop[parent2]);
+                    newind = crossover(pop[parent1], pop[parent2]);//cross the parents
                 } else {
                     parent = tournament(fitness, TSIZE);
                     newind = mutation(pop[parent], PMUT_PER_NODE);
                 }
                 newfit = fitness_function(newind);
                 offspring = negative_tournament(fitness, TSIZE);
-                pop[offspring] = newind;
-                fitness[offspring] = newfit;
+                pop[offspring] = newind;//add new node to population
+                fitness[offspring] = newfit;//add the fitness of said not to population
             }
             stats(fitness, pop, gen);
         }
         System.out.print("PROBLEM *NOT* SOLVED\n");
         System.exit(1);
-    }
-
-    public static void main(String[] args) {//driver of the program
-        String fname = "problem.dat";
-        long s = -1;
-
-        if (args.length == 2) {
-            s = Integer.valueOf(args[0]).intValue();
-            fname = args[1];
-        }
-        if (args.length == 1) {
-            fname = args[0];
-        }
-
-        tiny_gp gp = new tiny_gp(fname, s);
-        gp.evolve();
     }
 }
